@@ -1,0 +1,55 @@
+{
+  "name": "pi-session-naming",
+  "version": "0.1.0",
+  "description": "Standalone Pi extension package for automatic session titles, rename, and session browsing.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "session-title",
+    "session-naming"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/furbyhaxx/pi-session-naming.git"
+  },
+  "bugs": {
+    "url": "https://github.com/furbyhaxx/pi-session-naming/issues"
+  },
+  "homepage": "https://github.com/furbyhaxx/pi-session-naming#readme",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "tsx extensions/shared/config/settings-config.test.ts && tsx extensions/session/auto-title.test.ts && tsx extensions/session/model-selection.test.ts && tsx extensions/session/title-message.test.ts",
+    "test": "npm run typecheck && npm run test:unit",
+    "build": "npm run typecheck"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/session/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": { "optional": true },
+    "@earendil-works/pi-ai": { "optional": true },
+    "@earendil-works/pi-coding-agent": { "optional": true },
+    "@earendil-works/pi-tui": { "optional": true },
+    "typebox": { "optional": true }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0",
+    "@types/node": "^25.7.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
