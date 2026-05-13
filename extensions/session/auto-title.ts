@@ -40,6 +40,7 @@ import {
 } from "./model-selection.js";
 import {
 	fallbackDatetime,
+	formatTitleTagCatalog,
 	ISO_FALLBACK_RE,
 	isTrivialInput,
 	normalizeTitle,
@@ -201,6 +202,13 @@ function configuredTitleMaxLength(
 	return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 52;
 }
 
+function configuredScopeMaxLength(
+	titleConfig: SessionTitleGenerationConfig,
+): number {
+	const value = titleConfig.scopeMaxLength;
+	return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 12;
+}
+
 function configuredTitleRetries(
 	titleConfig: SessionTitleGenerationConfig,
 ): number {
@@ -227,6 +235,8 @@ function buildSystemPrompt(titleConfig: SessionTitleGenerationConfig): string {
 		builtinTags: titleConfig.builtinTags,
 		tags: titleConfig.tags,
 	});
+	const tagCatalog = formatTitleTagCatalog(tags);
+	const tagNames = tags.map((tag) => tag.name);
 	const emojiRule = titleConfig.emojis
 		? "Emojis are allowed inside the description only when they meaningfully clarify the topic."
 		: "Never use emojis.";
@@ -235,23 +245,25 @@ function buildSystemPrompt(titleConfig: SessionTitleGenerationConfig): string {
 		: "Output only `<description>` without a prefixed tag or scope.";
 	const tagRule = useTags
 		? tags.length
-			? `Allowed tags, in preference order: ${tags.join(", ")}. Use only these tags.`
+			? "Use only the allowed tag names from <tag-guidance>. Choose the tag whose guidance best matches the user's actual intent."
 			: "No tags are configured; omit the prefixed tag and output only the description."
 		: "Tags are disabled; do not output a tag, scope, colon prefix, or Conventional Commit prefix.";
 
 	return render(DEFAULT_SYSTEM_TEMPLATE, {
 		max_length: String(maxLen),
+		scope_max_length: String(configuredScopeMaxLength(titleConfig)),
 		emoji_rule: emojiRule,
 		fallback_datetime: fallbackDatetime(),
 		language_instruction: languageInstruction(titleConfig.language),
 		format_rule: formatRule,
 		tag_rule: tagRule,
-		tags: tags.join(", ") || "(none)",
+		tag_names: tagNames.join(", ") || "(none)",
+		tag_guidance: tagCatalog || "(none)",
 	});
 }
 
 const DEFAULT_COMMAND_HINT =
-	"This session was started with the user command `/{{command.name}}`. Make sure the title clearly reflects that command; if tags are enabled, prefer using `{{command.name}}` as scope when it is the most specific concrete identifier.";
+	"This session was started with the user command `/{{command.name}}`. Make sure the title clearly reflects that command. Use a command-derived scope only when it is one single word that satisfies the scope rules; otherwise put the command name in the description.";
 
 function buildCommandHintBlock(pending: PendingTitle): string {
 	if (!pending.commandName) return "";
@@ -272,13 +284,15 @@ function buildUserMessage(
 		builtinTags: titleConfig.builtinTags,
 		tags: titleConfig.tags,
 	});
+	const tagNames = tags.map((tag) => tag.name);
 	const ctx: string[] = [];
 	ctx.push(`language: ${titleConfig.language || "auto"}`);
 	ctx.push(
 		`format: ${shouldUseTags(titleConfig) && tags.length > 0 ? "tagged" : "description-only"}`,
 	);
 	ctx.push(`descriptionMaxLength: ${configuredTitleMaxLength(titleConfig)}`);
-	ctx.push(`tags: ${tags.join(", ") || "(none)"}`);
+	ctx.push(`scopeMaxLength: ${configuredScopeMaxLength(titleConfig)}`);
+	ctx.push(`tagNames: ${tagNames.join(", ") || "(none)"}`);
 	if (workspace.projects.length)
 		ctx.push(`projects: ${formatProjectMetadata(workspace.projects)}`);
 	if (workspace.git?.branch) ctx.push(`branch: ${workspace.git.branch}`);
@@ -318,11 +332,12 @@ function parseResult(
 	const inputIsTrivial = isTrivialInput(inputText);
 	const normalized = normalizeTitle(raw ?? "", {
 		maxLength: configuredTitleMaxLength(titleConfig),
+		scopeMaxLength: configuredScopeMaxLength(titleConfig),
 		useTags: shouldUseTags(titleConfig),
 		tags: resolveTitleTags({
 			builtinTags: titleConfig.builtinTags,
 			tags: titleConfig.tags,
-		}),
+		}).map((tag) => tag.name),
 	});
 	const isFallback = ISO_FALLBACK_RE.test(normalized);
 	return { title: normalized, temporary: isFallback || inputIsTrivial };

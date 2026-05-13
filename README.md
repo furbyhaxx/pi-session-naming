@@ -37,7 +37,8 @@ pi install npm:@furbyhaxx/pi-session-naming
 
 - Auto-generates a title for unnamed sessions.
 - Generates conventional-style titles such as `fix(auth): refresh token flow`.
-- Uses built-in title tags plus optional user-supplied tags.
+- Restricts scopes to a single lowercase alphanumeric word with configurable length, because `feat(pi-fancy-editor): ...` is chaos wearing a hat.
+- Uses built-in title tags plus optional user-supplied tag guidance.
 - Adds lightweight project context from common manifest files, not just npm packages.
 - Can disable tags for plain description-only titles.
 - Uses a configured lightweight model, or auto-selects a known title model.
@@ -75,7 +76,7 @@ Project settings override global settings:
 ./.pi/settings.json
 ```
 
-This extension reads both scopes through pi's `SettingsManager` and deep-merges only its own `session.titleGeneration`, `session.rename`, and `session.browser` blocks. Snake-case aliases for the new keys are accepted (`title_generation`, `max_length`, `use_tags`, `builtin_tags`, etc.). Unknown settings outside the current schema are ignored.
+This extension reads both scopes through pi's `SettingsManager` and deep-merges only its own `session.titleGeneration`, `session.rename`, and `session.browser` blocks. Snake-case aliases for the new keys are accepted (`title_generation`, `max_length`, `scope_max_length`, `use_tags`, `builtin_tags`, etc.). Unknown settings outside the current schema are ignored.
 
 ### Defaults
 
@@ -89,6 +90,7 @@ This extension reads both scopes through pi's `SettingsManager` and deep-merges 
       "retries": 3,
       "emojis": false,
       "maxLength": 52,
+      "scopeMaxLength": 12,
       "maxMessageCount": -1,
       "includeTools": true,
       "useTags": true,
@@ -124,19 +126,22 @@ This extension reads both scopes through pi's `SettingsManager` and deep-merges 
 | `retries` | `3` | Number of attempts for the selected title model before trying the current session model once when different. |
 | `emojis` | `false` | Allows or forbids emojis in generated titles. |
 | `maxLength` | `52` | Maximum length of the description part after the tag, e.g. only `choco cookies` in `research(recipe): choco cookies`. |
+| `scopeMaxLength` | `12` | Maximum length for optional scopes. Scopes are normalized to lowercase and must be one alphanumeric word: `auth`, not `auth-service`. |
 | `maxMessageCount` | `-1` | Maximum number of latest textified message entries from the active session branch sent inside `<session-transcript>`. `0` or `-1` sends the whole branch transcript. |
 | `includeTools` | `true` | Includes textified tool-result messages in `<session-transcript>`. When `false`, only user and assistant text messages are sent. |
 | `useTags` | `true` | Enables the prefixed tag format (`research(recipe): ...`). When `false`, titles are plain descriptions. |
 | `builtinTags` | `true` | Enables the built-in tag list. When `false`, only user-provided `tags` are available. |
-| `tags` | `[]` | Additional lowercase custom tags. Invalid tags are ignored. |
+| `tags` | `[]` | Additional lowercase custom tags. Entries may be strings (`"meet"`) or `["name", "guidance"]` pairs. Invalid tags are ignored. |
 
 ### Built-in title tags
 
+Built-in tags include short model-facing guidance for when each tag should apply:
+
 ```text
 feat, add, fix, refactor, perf, style, test, bench, docs, build, ops, chore,
-analyze, audit, review, research, investigate, debug, troubleshoot, plan,
-design, propose, compare, evaluate, explain, summarize, document, configure,
-migrate, prototype, validate, wire
+onboard, scaffold, bootstrap, init, skill, analyze, audit, review, research,
+investigate, debug, troubleshoot, plan, design, propose, compare, evaluate,
+explain, summarize, document, configure, migrate, prototype, validate, wire
 ```
 
 ### Example
@@ -150,11 +155,16 @@ migrate, prototype, validate, wire
       "retries": 3,
       "emojis": false,
       "maxLength": 52,
+      "scopeMaxLength": 12,
       "maxMessageCount": -1,
       "includeTools": true,
       "useTags": true,
       "builtinTags": true,
-      "tags": ["cook", "book", "meet"]
+      "tags": [
+        ["cook", "Use when cooking"],
+        ["book", "Use when reading or writing about books"],
+        "meet"
+      ]
     }
   }
 }
@@ -167,7 +177,7 @@ To use only your own tag list:
   "session": {
     "titleGeneration": {
       "builtinTags": false,
-      "tags": ["cook", "book", "meet"]
+      "tags": [["cook", "Use when cooking"], "book", "meet"]
     }
   }
 }

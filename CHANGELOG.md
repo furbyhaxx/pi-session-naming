@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses conventional commits.
 
+## [0.2.1] - 2026-05-13
+
+### Added
+
+- Added `scopeMaxLength` for generated conventional-title scopes, defaulting to 12 characters.
+- Added `onboard`, `scaffold`, `bootstrap`, `init`, and `skill` built-in title tags with model-facing guidance.
+- Added optional custom tag guidance via `["name", "description"]` entries in `session.titleGeneration.tags`.
+
+### Changed
+
+- Tightened generated scope validation to one lowercase alphanumeric word; compound scopes such as `pi-fancy-editor` are rejected.
+- Changed built-in title tags from bare names to guided tag objects used in the generation prompt.
+
 ## [0.2.0] - 2026-05-13
 
 ### Changed

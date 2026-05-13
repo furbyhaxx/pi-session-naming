@@ -6,6 +6,11 @@ export interface PiConfig {
 	session: SessionConfig;
 }
 
+export type SessionTitleTagConfig =
+	| string
+	| readonly [string, string?]
+	| { name: string; description?: string };
+
 export interface SessionTitleGenerationConfig {
 	enabled: boolean;
 	language: string;
@@ -13,11 +18,12 @@ export interface SessionTitleGenerationConfig {
 	retries: number;
 	emojis: boolean;
 	maxLength: number;
+	scopeMaxLength: number;
 	maxMessageCount: number;
 	includeTools: boolean;
 	useTags: boolean;
 	builtinTags: boolean;
-	tags: string[];
+	tags: SessionTitleTagConfig[];
 }
 
 export interface SessionRenameConfig {
@@ -65,6 +71,7 @@ export const DEFAULT_SESSION_NAMING_CONFIG: PiConfig = {
 			retries: 3,
 			emojis: false,
 			maxLength: 52,
+			scopeMaxLength: 12,
 			maxMessageCount: -1,
 			includeTools: true,
 			useTags: true,
@@ -103,6 +110,7 @@ const TITLE_GENERATION_KEYS = [
 	"retries",
 	"emojis",
 	"maxLength",
+	"scopeMaxLength",
 	"maxMessageCount",
 	"includeTools",
 	"useTags",
