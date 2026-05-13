@@ -13,6 +13,8 @@ export interface SessionTitleGenerationConfig {
 	retries: number;
 	emojis: boolean;
 	maxLength: number;
+	maxMessageCount: number;
+	includeTools: boolean;
 	useTags: boolean;
 	builtinTags: boolean;
 	tags: string[];
@@ -63,6 +65,8 @@ export const DEFAULT_SESSION_NAMING_CONFIG: PiConfig = {
 			retries: 3,
 			emojis: false,
 			maxLength: 52,
+			maxMessageCount: -1,
+			includeTools: true,
 			useTags: true,
 			builtinTags: true,
 			tags: [],
@@ -99,6 +103,8 @@ const TITLE_GENERATION_KEYS = [
 	"retries",
 	"emojis",
 	"maxLength",
+	"maxMessageCount",
+	"includeTools",
 	"useTags",
 	"builtinTags",
 	"tags",

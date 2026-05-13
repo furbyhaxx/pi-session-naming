@@ -89,6 +89,8 @@ This extension reads both scopes through pi's `SettingsManager` and deep-merges 
       "retries": 3,
       "emojis": false,
       "maxLength": 52,
+      "maxMessageCount": -1,
+      "includeTools": true,
       "useTags": true,
       "builtinTags": true,
       "tags": []
@@ -122,6 +124,8 @@ This extension reads both scopes through pi's `SettingsManager` and deep-merges 
 | `retries` | `3` | Number of attempts for the selected title model before trying the current session model once when different. |
 | `emojis` | `false` | Allows or forbids emojis in generated titles. |
 | `maxLength` | `52` | Maximum length of the description part after the tag, e.g. only `choco cookies` in `research(recipe): choco cookies`. |
+| `maxMessageCount` | `-1` | Maximum number of latest textified message entries from the active session branch sent inside `<session-transcript>`. `0` or `-1` sends the whole branch transcript. |
+| `includeTools` | `true` | Includes textified tool-result messages in `<session-transcript>`. When `false`, only user and assistant text messages are sent. |
 | `useTags` | `true` | Enables the prefixed tag format (`research(recipe): ...`). When `false`, titles are plain descriptions. |
 | `builtinTags` | `true` | Enables the built-in tag list. When `false`, only user-provided `tags` are available. |
 | `tags` | `[]` | Additional lowercase custom tags. Invalid tags are ignored. |
@@ -146,6 +150,8 @@ migrate, prototype, validate, wire
       "retries": 3,
       "emojis": false,
       "maxLength": 52,
+      "maxMessageCount": -1,
+      "includeTools": true,
       "useTags": true,
       "builtinTags": true,
       "tags": ["cook", "book", "meet"]
@@ -169,7 +175,11 @@ To use only your own tag list:
 
 ## Title-generation project context
 
-For title generation, the extension sends compact project identity metadata when it can detect it. It does **not** send full manifest files. It sends a single context line like:
+For title generation, the extension sends compact project identity metadata when it can detect it. It does **not** send full manifest files. It also sends the configured textified session branch inside `<session-transcript>`.
+
+By default, `maxMessageCount: -1` sends all textified user/assistant/tool-result message entries from the active session branch. Set a positive `maxMessageCount` to send only the latest N entries, or set `includeTools: false` to omit tool-result messages.
+
+Project metadata is sent as a single context line like:
 
 ```text
 projects: rust:furbyhaxx-core (Cargo.toml), python:furbyhaxx-tools (pyproject.toml)

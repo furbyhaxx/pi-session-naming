@@ -32,7 +32,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx extensions/shared/config/settings-config.test.ts && tsx extensions/session/auto-title.test.ts && tsx extensions/session/model-selection.test.ts && tsx extensions/session/list.test.ts && tsx extensions/session/project-metadata.test.ts && tsx extensions/session/title-message.test.ts",
+    "test:unit": "tsx extensions/shared/config/settings-config.test.ts && tsx extensions/session/auto-title.test.ts && tsx extensions/session/model-selection.test.ts && tsx extensions/session/list.test.ts && tsx extensions/session/project-metadata.test.ts && tsx extensions/session/session-transcript.test.ts && tsx extensions/session/title-message.test.ts",
     "test": "npm run typecheck && npm run test:unit",
     "build": "npm run typecheck"
   },

@@ -31,6 +31,7 @@ import {
 	formatProjectMetadata,
 	type ProjectMetadata,
 } from "./project-metadata.js";
+import { buildSessionTranscriptBlock } from "./session-transcript.js";
 import { shouldCreateInitialTitlePending } from "./title-scheduling.js";
 import {
 	isAutoTitleModelValue,
@@ -111,17 +112,6 @@ function firstTextContent(content: unknown): string {
 		})
 		.filter(Boolean)
 		.join("\n");
-}
-
-function entryText(entry: SessionEntry): string | undefined {
-	if (entry.type !== "message") return undefined;
-	const m = entry.message;
-	if (m.role === "user") return `[user] ${firstTextContent(m.content)}`;
-	if (m.role === "assistant")
-		return `[assistant] ${firstTextContent(m.content)}`;
-	if (m.role === "toolResult")
-		return `[tool:${m.toolName}] ${firstTextContent(m.content)}`;
-	return undefined;
 }
 
 function latestUserPrompt(branch: SessionEntry[]): string | undefined {
@@ -303,14 +293,13 @@ function buildUserMessage(
 		? `<existing-titles>\n${workspace.sessionTitles.join("\n")}\n</existing-titles>\n\n`
 		: "";
 	const command_hint_block = buildCommandHintBlock(pending);
-	const branchText = branch
-		.map(entryText)
-		.filter(Boolean)
-		.slice(-40)
-		.join("\n");
-	const content_block = branchText
-		? `<conversation>\n${branchText}\n</conversation>`
-		: `<message>\n${pending.rawInput ?? pending.firstPrompt ?? ""}\n</message>`;
+	const transcriptBlock = buildSessionTranscriptBlock(branch, {
+		maxMessageCount: titleConfig.maxMessageCount,
+		includeTools: titleConfig.includeTools,
+	});
+	const content_block =
+		transcriptBlock ??
+		`<message>\n${pending.rawInput ?? pending.firstPrompt ?? ""}\n</message>`;
 
 	return render(DEFAULT_REQUEST_TEMPLATE, {
 		context_block,
