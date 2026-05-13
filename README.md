@@ -38,6 +38,7 @@ pi install npm:@furbyhaxx/pi-session-naming
 - Auto-generates a title for unnamed sessions.
 - Generates conventional-style titles such as `fix(auth): refresh token flow`.
 - Uses built-in title tags plus optional user-supplied tags.
+- Adds lightweight project context from common manifest files, not just npm packages.
 - Can disable tags for plain description-only titles.
 - Uses a configured lightweight model, or auto-selects a known title model.
 - Retries title generation and falls back once to the current session model when different.
@@ -165,6 +166,16 @@ To use only your own tag list:
   }
 }
 ```
+
+## Title-generation project context
+
+For title generation, the extension sends compact project identity metadata when it can detect it. It does **not** send full manifest files. It sends a single context line like:
+
+```text
+projects: rust:furbyhaxx-core (Cargo.toml), python:furbyhaxx-tools (pyproject.toml)
+```
+
+Detected manifests include `package.json`, `Cargo.toml`, `pyproject.toml`, `pubspec.yaml`, `go.mod`, `composer.json`, `pom.xml`, Gradle settings/build files, `.gemspec`, `mix.exs`, and `deno.json`/`deno.jsonc`.
 
 ## Package manifest
 

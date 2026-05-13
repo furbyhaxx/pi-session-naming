@@ -1,7 +1,7 @@
 /** Session title generation for Pi sessions. */
 
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	getAgentDir,
@@ -26,6 +26,11 @@ import {
 	shouldSkipAutoTitle,
 } from "./state.js";
 import { emitSessionTitleMessage } from "./title-message.js";
+import {
+	collectProjectMetadata,
+	formatProjectMetadata,
+	type ProjectMetadata,
+} from "./project-metadata.js";
 import { shouldCreateInitialTitlePending } from "./title-scheduling.js";
 import {
 	isAutoTitleModelValue,
@@ -64,7 +69,7 @@ type TitleResult = {
 type WorkspaceContext = {
 	sessionTitles: string[];
 	git?: { branch?: string; dirty?: string[] };
-	packageName?: string;
+	projects: ProjectMetadata[];
 	trackedFiles?: string[];
 };
 
@@ -173,17 +178,6 @@ async function collectGit(pi: ExtensionAPI): Promise<WorkspaceContext["git"]> {
 	}
 }
 
-function collectPackageName(cwd: string): string | undefined {
-	try {
-		const p = join(cwd, "package.json");
-		if (!existsSync(p)) return undefined;
-		const pkg = JSON.parse(readFileSync(p, "utf8")) as { name?: unknown };
-		return typeof pkg.name === "string" ? pkg.name : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
 async function collectTrackedFiles(pi: ExtensionAPI): Promise<string[]> {
 	try {
 		const r = await pi.exec("git", ["ls-files"], { timeout: 1500 });
@@ -205,7 +199,7 @@ async function collectWorkspace(
 	return {
 		sessionTitles,
 		git,
-		packageName: collectPackageName(ctx.cwd),
+		projects: collectProjectMetadata(ctx.cwd),
 		trackedFiles,
 	};
 }
@@ -295,7 +289,8 @@ function buildUserMessage(
 	);
 	ctx.push(`descriptionMaxLength: ${configuredTitleMaxLength(titleConfig)}`);
 	ctx.push(`tags: ${tags.join(", ") || "(none)"}`);
-	if (workspace.packageName) ctx.push(`project: ${workspace.packageName}`);
+	if (workspace.projects.length)
+		ctx.push(`projects: ${formatProjectMetadata(workspace.projects)}`);
 	if (workspace.git?.branch) ctx.push(`branch: ${workspace.git.branch}`);
 	if (workspace.git?.dirty?.length)
 		ctx.push(`dirty: ${workspace.git.dirty.slice(0, 8).join(", ")}`);

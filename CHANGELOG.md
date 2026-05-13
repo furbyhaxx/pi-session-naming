@@ -17,6 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 
 - Added an internal built-in conventional title tag list with optional user tag merging.
+- Added lightweight project metadata detection for common manifests including `Cargo.toml`, `pyproject.toml`, `pubspec.yaml`, `go.mod`, `composer.json`, JVM/Gradle, Ruby, Elixir, Deno, and `package.json`.
 - Added npm package publishing metadata and an MIT `LICENSE` file.
 - Added unit tests for the simplified config schema, title tag handling, model reference parsing, and fixed listing flags.
 
