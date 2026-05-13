@@ -3,42 +3,19 @@ import { join } from "node:path";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 export interface PiConfig {
-	version: number;
-	user: {
-		preferences: {
-			language: string;
-		};
-	};
 	session: SessionConfig;
-}
-
-export type SessionTitleFormat = "conventional";
-export type SessionTitleFallback = "datetime";
-
-export interface SessionTitlePromptOverrides {
-	replace: string;
-	rules: string;
-	examples: string;
 }
 
 export interface SessionTitleGenerationConfig {
 	enabled: boolean;
+	language: string;
 	model: string;
-	commandStrategy: {
-		waitTurns: number;
-		prompt: SessionTitlePromptOverrides;
-	};
-	retry: {
-		temporaryAfterTurns: number;
-		maxTemporaryRetries: number;
-	};
-	style: {
-		format: SessionTitleFormat;
-		emojis: boolean;
-		maxLength: number;
-		fallback: SessionTitleFallback;
-		prompt: SessionTitlePromptOverrides;
-	};
+	retries: number;
+	emojis: boolean;
+	maxLength: number;
+	useTags: boolean;
+	builtinTags: boolean;
+	tags: string[];
 }
 
 export interface SessionRenameConfig {
@@ -51,7 +28,6 @@ export interface SessionBrowserConfig {
 	enabled: boolean;
 	command: string;
 	pageSize: number;
-	showCwd: "auto" | "always" | "never";
 	delete: {
 		enabled: boolean;
 		useTrash: boolean;
@@ -59,17 +35,10 @@ export interface SessionBrowserConfig {
 	};
 }
 
-export interface SessionListConfig {
-	enabled: boolean;
-	flag: string;
-	jsonFlag: string;
-}
-
 export interface SessionConfig {
 	titleGeneration: SessionTitleGenerationConfig;
 	rename: SessionRenameConfig;
 	browser: SessionBrowserConfig;
-	list: SessionListConfig;
 }
 
 export type DeepPartial<T> = {
@@ -86,39 +55,17 @@ export interface LoadedPiConfig {
 }
 
 export const DEFAULT_SESSION_NAMING_CONFIG: PiConfig = {
-	version: 1,
-	user: {
-		preferences: {
-			language: "English",
-		},
-	},
 	session: {
 		titleGeneration: {
 			enabled: true,
+			language: "auto",
 			model: "auto",
-			commandStrategy: {
-				waitTurns: 3,
-				prompt: {
-					replace: "",
-					rules: "",
-					examples: "",
-				},
-			},
-			retry: {
-				temporaryAfterTurns: 10,
-				maxTemporaryRetries: 3,
-			},
-			style: {
-				format: "conventional",
-				emojis: false,
-				maxLength: 52,
-				fallback: "datetime",
-				prompt: {
-					replace: "",
-					rules: "",
-					examples: "",
-				},
-			},
+			retries: 3,
+			emojis: false,
+			maxLength: 52,
+			useTags: true,
+			builtinTags: true,
+			tags: [],
 		},
 		rename: {
 			enabled: true,
@@ -129,17 +76,11 @@ export const DEFAULT_SESSION_NAMING_CONFIG: PiConfig = {
 			enabled: true,
 			command: "sessions",
 			pageSize: 12,
-			showCwd: "auto",
 			delete: {
 				enabled: true,
 				useTrash: true,
 				confirmPresses: 2,
 			},
-		},
-		list: {
-			enabled: true,
-			flag: "list-sessions",
-			jsonFlag: "json",
 		},
 	},
 };
@@ -147,10 +88,24 @@ export const DEFAULT_SESSION_NAMING_CONFIG: PiConfig = {
 export const DEFAULT_PI_CONFIG = DEFAULT_SESSION_NAMING_CONFIG;
 
 type SettingsWithSessionNaming = {
-	version?: number;
-	user?: DeepPartial<PiConfig["user"]>;
-	session?: DeepPartial<SessionConfig>;
+	session?: Record<string, unknown>;
 };
+
+const SESSION_KEYS = ["titleGeneration", "rename", "browser"] as const;
+const TITLE_GENERATION_KEYS = [
+	"enabled",
+	"language",
+	"model",
+	"retries",
+	"emojis",
+	"maxLength",
+	"useTags",
+	"builtinTags",
+	"tags",
+] as const;
+const RENAME_KEYS = ["enabled", "command", "interactiveWhenEmpty"] as const;
+const BROWSER_KEYS = ["enabled", "command", "pageSize", "delete"] as const;
+const DELETE_KEYS = ["enabled", "useTrash", "confirmPresses"] as const;
 
 export function loadSessionNamingConfig(
 	cwd: string,
@@ -183,11 +138,49 @@ function mergeSettingsConfig(
 	base: PiConfig,
 	settings: SettingsWithSessionNaming,
 ): PiConfig {
-	return deepMerge(base, {
-		version: settings.version,
-		user: settings.user,
-		session: settings.session,
-	});
+	const session = pickKnown(settings.session, SESSION_KEYS);
+	return {
+		session: {
+			titleGeneration: mergeKnown(
+				base.session.titleGeneration,
+				pickKnown(session.titleGeneration, TITLE_GENERATION_KEYS),
+			),
+			rename: mergeKnown(
+				base.session.rename,
+				pickKnown(session.rename, RENAME_KEYS),
+			),
+			browser: mergeBrowserConfig(
+				base.session.browser,
+				pickKnown(session.browser, BROWSER_KEYS),
+			),
+		},
+	};
+}
+
+function mergeBrowserConfig(
+	base: SessionBrowserConfig,
+	override: Record<string, unknown>,
+): SessionBrowserConfig {
+	return {
+		...mergeKnown(base, override),
+		delete: mergeKnown(
+			base.delete,
+			pickKnown(override.delete, DELETE_KEYS),
+		),
+	};
+}
+
+function mergeKnown<T>(base: T, override: unknown): T {
+	return deepMerge(base, override as DeepPartial<T> | undefined);
+}
+
+function pickKnown(value: unknown, keys: readonly string[]): Record<string, unknown> {
+	if (!isPlainObject(value)) return {};
+	const out: Record<string, unknown> = {};
+	for (const key of keys) {
+		if (Object.hasOwn(value, key)) out[key] = value[key];
+	}
+	return out;
 }
 
 function settingsSources(cwd: string, agentDir: string): string[] {

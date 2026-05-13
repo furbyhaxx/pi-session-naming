@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses conventional commits.
 
+## [0.2.0] - 2026-05-13
+
+### Changed
+
+- Simplified `session.titleGeneration` around the conventional title design.
+- Replaced nested `style`, `fallback`, `commandStrategy`, and `retry` settings with flat `language`, `model`, `retries`, `emojis`, `maxLength`, `useTags`, `builtinTags`, and `tags` options.
+- Made `--list-sessions` and `--json` fixed flags instead of configurable `session.list` settings.
+- Updated title normalization so `maxLength` applies only to the generated description, not the tag/scope prefix.
+- Prepared package metadata for npm publishing as `@furbyhaxx/pi-session-naming`.
+
+### Added
+
+- Added an internal built-in conventional title tag list with optional user tag merging.
+- Added npm package publishing metadata and an MIT `LICENSE` file.
+- Added unit tests for the simplified config schema, title tag handling, model reference parsing, and fixed listing flags.
+
 ## [0.1.0] - 2026-05-13
 
 ### Added

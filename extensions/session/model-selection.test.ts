@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	isAutoTitleModelValue,
+	parseTitleModelRef,
 	pickAutoTitleModel,
 	shouldSkipAutoTitleCandidateForContext,
 } from "./model-selection.js";
@@ -9,6 +10,25 @@ assert.equal(isAutoTitleModelValue(undefined), true);
 assert.equal(isAutoTitleModelValue(""), true);
 assert.equal(isAutoTitleModelValue("auto"), true);
 assert.equal(isAutoTitleModelValue(" inherit "), false);
+
+assert.deepEqual(parseTitleModelRef("deepseek/deepseek-v4-flash:high"), {
+	provider: "deepseek",
+	id: "deepseek-v4-flash",
+	thinking: "high",
+});
+assert.deepEqual(parseTitleModelRef("github-copilot/gpt-5.4-mini"), {
+	provider: "github-copilot",
+	id: "gpt-5.4-mini",
+	thinking: undefined,
+});
+assert.deepEqual(parseTitleModelRef("gpt-5.4-mini:low", "github-copilot"), {
+	provider: "github-copilot",
+	id: "gpt-5.4-mini",
+	thinking: "low",
+});
+assert.equal(parseTitleModelRef("auto"), undefined);
+assert.equal(parseTitleModelRef("deepseek/"), undefined);
+assert.equal(parseTitleModelRef("deepseek/deepseek-v4-flash:huge"), undefined);
 
 assert.equal(
 	shouldSkipAutoTitleCandidateForContext({

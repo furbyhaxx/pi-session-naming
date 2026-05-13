@@ -13,12 +13,11 @@ import {
 	type SessionEntry,
 	type SessionInfo,
 } from "@earendil-works/pi-coding-agent";
-import { completeSimple, type Model } from "@earendil-works/pi-ai";
+import { completeSimple, type Model, type ThinkingLevel } from "@earendil-works/pi-ai";
 import {
 	DEFAULT_PI_CONFIG,
 	type PiConfig,
 	type SessionTitleGenerationConfig,
-	type SessionTitlePromptOverrides,
 } from "../shared/config/index.js";
 import { loadPiConfig } from "../shared/config/index.js";
 import {
@@ -30,13 +29,15 @@ import { emitSessionTitleMessage } from "./title-message.js";
 import { shouldCreateInitialTitlePending } from "./title-scheduling.js";
 import {
 	isAutoTitleModelValue,
-	pickAutoTitleModels,
+	parseTitleModelRef,
+	pickAutoTitleModel,
 } from "./model-selection.js";
 import {
 	fallbackDatetime,
 	ISO_FALLBACK_RE,
 	isTrivialInput,
 	normalizeTitle,
+	resolveTitleTags,
 } from "./title-utils.js";
 
 export {
@@ -78,20 +79,10 @@ const DEFAULT_REQUEST_TEMPLATE = readFileSync(
 	"utf8",
 );
 
-const RULES_BLOCK_RE = /<rules>\n?([\s\S]*?)\n?<\/rules>/;
-const EXAMPLES_BLOCK_RE = /<examples>\n?([\s\S]*?)\n?<\/examples>/;
 const NO_TEMPERATURE_APIS = new Set(["openai-codex-responses"]);
-
-const extractBlock = (source: string, re: RegExp): string => {
-	const m = source.match(re);
-	return m ? m[1]!.trim() : "";
-};
-
-const BUILTIN_RULES = extractBlock(DEFAULT_SYSTEM_TEMPLATE, RULES_BLOCK_RE);
-const BUILTIN_EXAMPLES = extractBlock(
-	DEFAULT_SYSTEM_TEMPLATE,
-	EXAMPLES_BLOCK_RE,
-);
+const COMMAND_WAIT_TURNS = 3;
+const TEMPORARY_RETRY_AFTER_TURNS = 10;
+const MAX_TEMPORARY_TITLE_RETRIES = 3;
 
 function render(template: string, vars: Record<string, string>): string {
 	return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (whole, key) =>
@@ -143,20 +134,6 @@ function isCommandInput(text: string): boolean {
 
 function commandName(text: string): string | undefined {
 	return text.match(/^\s*\/([^\s]+)/)?.[1]?.toLowerCase();
-}
-
-function resolveConfiguredModel(
-	value: string | undefined,
-	current: Model<any> | undefined,
-): { provider: string; id: string } | undefined {
-	const resolved = value?.trim() || "auto";
-	if (isAutoTitleModelValue(resolved)) return undefined;
-	if (resolved === "inherit")
-		return current ? { provider: current.provider, id: current.id } : undefined;
-	const slash = resolved.indexOf("/");
-	if (slash <= 0)
-		return current ? { provider: current.provider, id: resolved } : undefined;
-	return { provider: resolved.slice(0, slash), id: resolved.slice(slash + 1) };
 }
 
 function sessionTitle(session: SessionInfo): string | undefined {
@@ -233,95 +210,68 @@ async function collectWorkspace(
 	};
 }
 
-function resolvePromptSections(
-	overrides: Partial<SessionTitlePromptOverrides> | undefined,
-	builtinRules: string,
-	builtinExamples: string,
-): { replace: string; rules: string; examples: string } {
-	const replace = overrides?.replace?.trim() || "";
-	const userRules = overrides?.rules?.trim() || "";
-	const userExamples = overrides?.examples?.trim() || "";
-
-	const rules = userRules
-		? replace
-			? userRules
-			: `${builtinRules}\n${userRules}`
-		: builtinRules;
-	const examples = userExamples
-		? replace
-			? userExamples
-			: `${builtinExamples}\n${userExamples}`
-		: builtinExamples;
-	return { replace, rules, examples };
-}
-
 function configuredTitleMaxLength(
 	titleConfig: SessionTitleGenerationConfig,
 ): number {
-	const value = titleConfig.style.maxLength;
+	const value = titleConfig.maxLength;
 	return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 52;
 }
 
-function buildSystemPrompt(
+function configuredTitleRetries(
 	titleConfig: SessionTitleGenerationConfig,
-	pending: PendingTitle,
-	language: string,
-): string {
-	const maxLen = configuredTitleMaxLength(titleConfig);
-	const style = titleConfig.style;
-	const emojis = style.emojis;
+): number {
+	const value = titleConfig.retries;
+	return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 3;
+}
 
-	const styleSections = resolvePromptSections(
-		style.prompt,
-		BUILTIN_RULES,
-		BUILTIN_EXAMPLES,
-	);
+function shouldUseTags(titleConfig: SessionTitleGenerationConfig): boolean {
+	return titleConfig.useTags !== false;
+}
 
-	let finalRules = styleSections.rules;
-	let finalExamples = styleSections.examples;
-	if (pending.commandName && titleConfig.commandStrategy.prompt) {
-		const cmdSections = resolvePromptSections(
-			titleConfig.commandStrategy.prompt,
-			finalRules,
-			finalExamples,
-		);
-		finalRules = cmdSections.rules;
-		finalExamples = cmdSections.examples;
+function languageInstruction(language: string): string {
+	const trimmed = language.trim();
+	if (!trimmed || trimmed === "auto") {
+		return "Use the same natural language as the user's messages. If multiple user languages appear, prefer the latest substantive user message.";
 	}
+	return `Use this natural language for the title description: ${trimmed}.`;
+}
 
-	const replace = styleSections.replace;
-	const template = replace
-		? replace
-		: DEFAULT_SYSTEM_TEMPLATE.replace(
-				RULES_BLOCK_RE,
-				`<rules>\n${finalRules}\n</rules>`,
-			).replace(EXAMPLES_BLOCK_RE, `<examples>\n${finalExamples}\n</examples>`);
+function buildSystemPrompt(titleConfig: SessionTitleGenerationConfig): string {
+	const maxLen = configuredTitleMaxLength(titleConfig);
+	const useTags = shouldUseTags(titleConfig);
+	const tags = resolveTitleTags({
+		builtinTags: titleConfig.builtinTags,
+		tags: titleConfig.tags,
+	});
+	const emojiRule = titleConfig.emojis
+		? "Emojis are allowed inside the description only when they meaningfully clarify the topic."
+		: "Never use emojis.";
+	const formatRule = useTags
+		? "Use `<tag>(<optional-scope>): <description>` when at least one tag is available. If no tag is available, output only `<description>`."
+		: "Output only `<description>` without a prefixed tag or scope.";
+	const tagRule = useTags
+		? tags.length
+			? `Allowed tags, in preference order: ${tags.join(", ")}. Use only these tags.`
+			: "No tags are configured; omit the prefixed tag and output only the description."
+		: "Tags are disabled; do not output a tag, scope, colon prefix, or Conventional Commit prefix.";
 
-	const emojiRule = emojis
-		? "Emojis are allowed inside `<description>` only when they meaningfully clarify the topic"
-		: "Never use emojis";
-
-	return render(template, {
+	return render(DEFAULT_SYSTEM_TEMPLATE, {
 		max_length: String(maxLen),
 		emoji_rule: emojiRule,
 		fallback_datetime: fallbackDatetime(),
-		rules: finalRules,
-		examples: finalExamples,
-		language,
+		language_instruction: languageInstruction(titleConfig.language),
+		format_rule: formatRule,
+		tag_rule: tagRule,
+		tags: tags.join(", ") || "(none)",
 	});
 }
 
 const DEFAULT_COMMAND_HINT =
-	"This session was started with the user command `/{{command.name}}`. Make sure the title clearly reflects that — prefer using `{{command.name}}` (or a short normalized form) as the `<scope>`, e.g. `feat({{command.name}}): …`.";
+	"This session was started with the user command `/{{command.name}}`. Make sure the title clearly reflects that command; if tags are enabled, prefer using `{{command.name}}` as scope when it is the most specific concrete identifier.";
 
-function buildCommandHintBlock(
-	pending: PendingTitle,
-	titleConfig: SessionTitleGenerationConfig,
-): string {
+function buildCommandHintBlock(pending: PendingTitle): string {
 	if (!pending.commandName) return "";
-	const tpl =
-		titleConfig.commandStrategy.prompt.replace?.trim() || DEFAULT_COMMAND_HINT;
-	const rendered = tpl.replace(
+	const rendered = DEFAULT_COMMAND_HINT.replace(
 		/\{\{\s*command\.name\s*\}\}/g,
 		pending.commandName,
 	);
@@ -333,10 +283,18 @@ function buildUserMessage(
 	branch: SessionEntry[],
 	titleConfig: SessionTitleGenerationConfig,
 	workspace: WorkspaceContext,
-	language: string,
 ): string {
+	const tags = resolveTitleTags({
+		builtinTags: titleConfig.builtinTags,
+		tags: titleConfig.tags,
+	});
 	const ctx: string[] = [];
-	ctx.push(`language: ${language}`);
+	ctx.push(`language: ${titleConfig.language || "auto"}`);
+	ctx.push(
+		`format: ${shouldUseTags(titleConfig) && tags.length > 0 ? "tagged" : "description-only"}`,
+	);
+	ctx.push(`descriptionMaxLength: ${configuredTitleMaxLength(titleConfig)}`);
+	ctx.push(`tags: ${tags.join(", ") || "(none)"}`);
 	if (workspace.packageName) ctx.push(`project: ${workspace.packageName}`);
 	if (workspace.git?.branch) ctx.push(`branch: ${workspace.git.branch}`);
 	if (workspace.git?.dirty?.length)
@@ -349,7 +307,7 @@ function buildUserMessage(
 	const existing_titles_block = workspace.sessionTitles?.length
 		? `<existing-titles>\n${workspace.sessionTitles.join("\n")}\n</existing-titles>\n\n`
 		: "";
-	const command_hint_block = buildCommandHintBlock(pending, titleConfig);
+	const command_hint_block = buildCommandHintBlock(pending);
 	const branchText = branch
 		.map(entryText)
 		.filter(Boolean)
@@ -372,10 +330,16 @@ function parseResult(
 	pending: PendingTitle,
 	titleConfig: SessionTitleGenerationConfig,
 ): TitleResult {
-	const maxLen = configuredTitleMaxLength(titleConfig);
 	const inputText = pending.rawInput ?? pending.firstPrompt;
 	const inputIsTrivial = isTrivialInput(inputText);
-	const normalized = normalizeTitle(raw ?? "", maxLen);
+	const normalized = normalizeTitle(raw ?? "", {
+		maxLength: configuredTitleMaxLength(titleConfig),
+		useTags: shouldUseTags(titleConfig),
+		tags: resolveTitleTags({
+			builtinTags: titleConfig.builtinTags,
+			tags: titleConfig.tags,
+		}),
+	});
 	const isFallback = ISO_FALLBACK_RE.test(normalized);
 	return { title: normalized, temporary: isFallback || inputIsTrivial };
 }
@@ -383,6 +347,8 @@ function parseResult(
 type ResolvedTitleModel = {
 	model: Model<any>;
 	auth: { apiKey?: string; headers?: Record<string, string> };
+	thinking?: ThinkingLevel;
+	attempts: number;
 };
 
 async function resolveTitleModels(
@@ -391,68 +357,63 @@ async function resolveTitleModels(
 	pending: PendingTitle,
 ): Promise<ResolvedTitleModel[]> {
 	const configured = titleConfig.model?.trim() || "auto";
-	const inheritModel = ctx.model;
+	const currentModel = ctx.model;
+	const attempts = configuredTitleRetries(titleConfig);
 	const resolveAuth = async (
 		model: Model<any> | undefined,
+		thinking: ThinkingLevel | undefined,
+		modelAttempts: number,
 	): Promise<ResolvedTitleModel | undefined> => {
 		if (!model) return undefined;
 		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 		if (!auth.ok) return undefined;
-		return { model, auth };
+		return { model, auth, thinking, attempts: modelAttempts };
 	};
 
-	if (configured === "inherit") {
-		const r = await resolveAuth(inheritModel);
-		return r ? [r] : [];
-	}
+	let primary: ResolvedTitleModel | undefined;
 	if (!isAutoTitleModelValue(configured)) {
-		const modelRef = resolveConfiguredModel(configured, inheritModel);
-		const model = modelRef
-			? ctx.modelRegistry.find(modelRef.provider, modelRef.id)
-			: inheritModel;
-		const r = await resolveAuth(model);
-		return r ? [r] : [];
+		const ref = parseTitleModelRef(configured, currentModel?.provider);
+		const model = ref ? ctx.modelRegistry.find(ref.provider, ref.id) : undefined;
+		primary = await resolveAuth(model, ref?.thinking, attempts);
+	} else {
+		const usage = ctx.getContextUsage();
+		const currentContextTokens = usage?.tokens ?? null;
+		const forceCurrentContextCheck =
+			pending.force === true && pending.reason === "manual-auto";
+		const picked = pickAutoTitleModel({
+			availableModels: ctx.modelRegistry.getAvailable().map((model) => ({
+				provider: model.provider,
+				id: model.id,
+				contextWindow: model.contextWindow,
+			})),
+			forceCurrentContextCheck,
+			currentContextTokens,
+		});
+		const model = picked
+			? ctx.modelRegistry.find(picked.provider, picked.id)
+			: currentModel;
+		primary = await resolveAuth(model, undefined, attempts);
 	}
-
-	const usage = ctx.getContextUsage();
-	const currentContextTokens = usage?.tokens ?? null;
-	const forceCurrentContextCheck =
-		pending.force === true && pending.reason === "manual-auto";
-	const available = ctx.modelRegistry.getAvailable().map((model) => ({
-		provider: model.provider,
-		id: model.id,
-		contextWindow: model.contextWindow,
-	}));
-	const picked = pickAutoTitleModels({
-		availableModels: available,
-		forceCurrentContextCheck,
-		currentContextTokens,
-	});
 
 	const out: ResolvedTitleModel[] = [];
 	const seen = new Set<string>();
-	for (const ref of picked) {
-		const model = ctx.modelRegistry.find(ref.provider, ref.id);
-		const r = await resolveAuth(model);
-		if (r) {
-			const key = `${r.model.provider}/${r.model.id}`;
-			if (!seen.has(key)) {
-				seen.add(key);
-				out.push(r);
-			}
-		}
-	}
-	const inherit = await resolveAuth(inheritModel);
-	if (inherit) {
-		const key = `${inherit.model.provider}/${inherit.model.id}`;
-		if (!seen.has(key)) out.push(inherit);
-	}
+	const push = (candidate: ResolvedTitleModel | undefined): void => {
+		if (!candidate) return;
+		const key = `${candidate.model.provider}/${candidate.model.id}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		out.push(candidate);
+	};
+
+	push(primary);
+	push(await resolveAuth(currentModel, undefined, 1));
 	return out;
 }
 
 async function requestTitle(
 	model: Model<any>,
 	auth: { apiKey?: string; headers?: Record<string, string> },
+	thinking: ThinkingLevel | undefined,
 	systemPrompt: string,
 	userMessage: string,
 ): Promise<string> {
@@ -466,6 +427,7 @@ async function requestTitle(
 			apiKey: auth.apiKey,
 			headers: auth.headers,
 			maxTokens: 80,
+			...(thinking ? { reasoning: thinking } : {}),
 			...(NO_TEMPERATURE_APIS.has(model.api) ? {} : { temperature: 0.3 }),
 		},
 	);
@@ -498,13 +460,12 @@ export async function generateSessionTitleNow(
 		reason: options.reason ?? "manual-auto",
 		force: options.force,
 	};
-	return generateTitle(pi, ctx, config, titleConfig, pending);
+	return generateTitle(pi, ctx, titleConfig, pending);
 }
 
 async function generateTitle(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
-	config: PiConfig,
 	titleConfig: SessionTitleGenerationConfig,
 	pending: PendingTitle,
 ): Promise<TitleResult | undefined> {
@@ -524,56 +485,56 @@ async function generateTitle(
 	try {
 		const branch = ctx.sessionManager.getBranch();
 		const workspace = await collectWorkspace(pi, ctx);
-		const language = config.user.preferences.language || "English";
-		const systemPrompt = buildSystemPrompt(titleConfig, pending, language);
+		const systemPrompt = buildSystemPrompt(titleConfig);
 		const userMessage = buildUserMessage(
 			pending,
 			branch,
 			titleConfig,
 			workspace,
-			language,
 		);
 
-		let usedModel: Model<any> | undefined;
+		let usedCandidate: ResolvedTitleModel | undefined;
 		let raw = "";
-		for (let i = 0; i < candidates.length; i++) {
-			const { model, auth } = candidates[i];
-			try {
-				raw = await requestTitle(model, auth, systemPrompt, userMessage);
-				if (process.env.PI_DEBUG_SESSION_TITLE) {
+		let lastError: string | undefined;
+		outer: for (let i = 0; i < candidates.length; i++) {
+			const candidate = candidates[i];
+			const { model, auth, thinking } = candidate;
+			for (let attempt = 1; attempt <= candidate.attempts; attempt++) {
+				try {
+					raw = await requestTitle(
+						model,
+						auth,
+						thinking,
+						systemPrompt,
+						userMessage,
+					);
+					if (process.env.PI_DEBUG_SESSION_TITLE) {
+						console.warn(
+							`[session-title] raw from ${model.provider}/${model.id}${thinking ? `:${thinking}` : ""} attempt ${attempt}: ${JSON.stringify(raw)}`,
+						);
+					}
+					if (raw && raw.trim().length > 0) {
+						usedCandidate = candidate;
+						break outer;
+					}
+					lastError = "empty title";
+				} catch (error) {
+					lastError = error instanceof Error ? error.message : String(error);
 					console.warn(
-						`[session-title] raw from ${model.provider}/${model.id}: ${JSON.stringify(raw)}`,
+						`[session-title] model ${model.provider}/${model.id}${thinking ? `:${thinking}` : ""} attempt ${attempt}/${candidate.attempts} failed: ${lastError}`,
 					);
 				}
-				if (raw && raw.trim().length > 0) {
-					usedModel = model;
-					break;
-				}
-				// Empty reply: try next candidate if available.
-				if (i < candidates.length - 1) {
-					console.warn(
-						`[session-title] model ${model.provider}/${model.id} returned empty title; trying next candidate`,
-					);
-					continue;
-				}
-				usedModel = model;
-			} catch (error) {
-				const msg = error instanceof Error ? error.message : String(error);
-				console.warn(
-					`[session-title] model ${model.provider}/${model.id} failed: ${msg}`,
-				);
-				if (i < candidates.length - 1) continue;
-				// Last candidate: surface so the user sees why we fell back.
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`Title generation failed on all auto-title models (last: ${model.provider}/${model.id}): ${msg}`,
-						"warning",
-					);
-				}
-				usedModel = model;
 			}
 		}
-		const model = usedModel ?? candidates[0].model;
+		const candidate = usedCandidate ?? candidates[0];
+		const model = candidate.model;
+		const modelLabel = `${model.provider}/${model.id}${candidate.thinking ? `:${candidate.thinking}` : ""}`;
+		if (!usedCandidate && lastError && ctx.hasUI) {
+			ctx.ui.notify(
+				`Title generation failed on all auto-title attempts (last: ${lastError}); using fallback title`,
+				"warning",
+			);
+		}
 
 		if (
 			shouldSkipAutoTitle(ctx, pi, {
@@ -586,12 +547,7 @@ async function generateTitle(
 
 		const result = parseResult(raw, pending, titleConfig);
 		pi.setSessionName(result.title);
-		markAutoTitle(
-			pi,
-			result.title,
-			`${model.provider}/${model.id}`,
-			result.temporary,
-		);
+		markAutoTitle(pi, result.title, modelLabel, result.temporary);
 		if (ctx.hasUI) {
 			ctx.ui.setTitle(result.title);
 		}
@@ -599,7 +555,7 @@ async function generateTitle(
 			pi,
 			{
 				title: result.title,
-				actor: `${model.provider}/${model.id}`,
+				actor: modelLabel,
 				source: "auto",
 				temporary: result.temporary,
 			},
@@ -636,9 +592,7 @@ export function registerSessionAutoTitle(
 			firstPrompt: prompt,
 			rawInput,
 			commandName: rawInput ? commandName(rawInput) : undefined,
-			waitTurns:
-				waitTurns ??
-				(isCmd ? Math.max(0, config.commandStrategy.waitTurns) : 0),
+			waitTurns: waitTurns ?? (isCmd ? COMMAND_WAIT_TURNS : 0),
 			turnsSeen: 0,
 			reason,
 		};
@@ -659,7 +613,6 @@ export function registerSessionAutoTitle(
 				const result = await generateTitle(
 					pi,
 					ctx,
-					config,
 					config.session.titleGeneration,
 					snapshot,
 				);
@@ -729,7 +682,6 @@ export function registerSessionAutoTitle(
 
 	pi.on("turn_end", async (_event, ctx) => {
 		const config = await loadConfig(ctx);
-		const retryConfig = config.session.titleGeneration.retry;
 		if (pending && !generating) {
 			pending.turnsSeen++;
 			if (pending.turnsSeen >= pending.waitTurns) scheduleGeneration(ctx);
@@ -737,12 +689,12 @@ export function registerSessionAutoTitle(
 		}
 		if (
 			!generating &&
-			temporaryRetries < retryConfig.maxTemporaryRetries &&
+			temporaryRetries < MAX_TEMPORARY_TITLE_RETRIES &&
 			hasTemporaryAutoTitle(ctx) &&
 			!shouldSkipAutoTitle(ctx, pi, { allowTemporaryRetry: true })
 		) {
 			temporaryTurns++;
-			if (temporaryTurns >= retryConfig.temporaryAfterTurns) {
+			if (temporaryTurns >= TEMPORARY_RETRY_AFTER_TURNS) {
 				const prompt = latestUserPrompt(ctx.sessionManager.getBranch()) ?? "";
 				if (prompt) {
 					pending = makePending(

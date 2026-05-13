@@ -5,14 +5,26 @@ import {
 } from "./title-context.js";
 import { shouldCreateInitialTitlePending } from "./title-scheduling.js";
 import {
+	BUILTIN_TITLE_TAGS,
 	fallbackDatetime,
 	isTrivialInput,
 	normalizeTitle,
+	resolveTitleTags,
 } from "./title-utils.js";
 
 const ISO_FALLBACK_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}[+-]\d{2}:\d{2}$/;
 
 assert.match(fallbackDatetime(), ISO_FALLBACK_RE);
+assert.ok(BUILTIN_TITLE_TAGS.includes("research"));
+assert.ok(BUILTIN_TITLE_TAGS.includes("fix"));
+assert.deepEqual(
+	resolveTitleTags({ builtinTags: true, tags: ["cook", "Research", "bad tag"] }),
+	[...BUILTIN_TITLE_TAGS, "cook"],
+);
+assert.deepEqual(
+	resolveTitleTags({ builtinTags: false, tags: ["cook", "book", "cook"] }),
+	["cook", "book"],
+);
 
 for (const input of [
 	"hello",
@@ -57,29 +69,118 @@ for (const [input, expected] of [
 		"analyze(pi-nukii): session naming flow",
 	],
 ] as const) {
-	assert.equal(normalizeTitle(input, 52), expected);
+	assert.equal(
+		normalizeTitle(input, {
+			maxLength: 52,
+			useTags: true,
+			tags: BUILTIN_TITLE_TAGS,
+		}),
+		expected,
+	);
 }
 
 assert.equal(
-	normalizeTitle('"fix(parser): repair broken parser"', 52),
+	normalizeTitle('"fix(parser): repair broken parser"', {
+		maxLength: 52,
+		useTags: true,
+		tags: BUILTIN_TITLE_TAGS,
+	}),
 	"fix(parser): repair broken parser",
 );
 assert.equal(
-	normalizeTitle("feat(api): rate limiting.", 52),
+	normalizeTitle("feat(api): rate limiting.", {
+		maxLength: 52,
+		useTags: true,
+		tags: BUILTIN_TITLE_TAGS,
+	}),
 	"feat(api): rate limiting",
 );
-assert.match(normalizeTitle("just random text", 52), ISO_FALLBACK_RE);
-assert.match(normalizeTitle("Feat(api): uppercase type", 52), ISO_FALLBACK_RE);
+assert.equal(
+	normalizeTitle("research(really-long-scope-name): short", {
+		maxLength: 5,
+		useTags: true,
+		tags: BUILTIN_TITLE_TAGS,
+	}),
+	"research(really-long-scope-name): short",
+);
 assert.match(
-	normalizeTitle(`feat(api): ${"x".repeat(200)}`, 52),
+	normalizeTitle("research(recipe): chocolate cookie recipe", {
+		maxLength: 10,
+		useTags: true,
+		tags: BUILTIN_TITLE_TAGS,
+	}),
+	ISO_FALLBACK_RE,
+);
+assert.match(
+	normalizeTitle("just random text", {
+		maxLength: 52,
+		useTags: true,
+		tags: BUILTIN_TITLE_TAGS,
+	}),
+	ISO_FALLBACK_RE,
+);
+assert.match(
+	normalizeTitle("Feat(api): uppercase type", {
+		maxLength: 52,
+		useTags: true,
+		tags: BUILTIN_TITLE_TAGS,
+	}),
 	ISO_FALLBACK_RE,
 );
 assert.equal(
-	normalizeTitle("\u001b[32mfix(todo): replace progress glyphs\u001b[0m", 52),
+	normalizeTitle("short title without tag", {
+		maxLength: 24,
+		useTags: false,
+		tags: [],
+	}),
+	"short title without tag",
+);
+assert.equal(
+	normalizeTitle("cook(recipe): chocolate cookies", {
+		maxLength: 24,
+		useTags: true,
+		tags: ["cook"],
+	}),
+	"cook(recipe): chocolate cookies",
+);
+assert.match(
+	normalizeTitle("fix(auth): refresh token flow", {
+		maxLength: 52,
+		useTags: true,
+		tags: ["cook"],
+	}),
+	ISO_FALLBACK_RE,
+);
+assert.equal(
+	normalizeTitle("plain title with no tags configured", {
+		maxLength: 40,
+		useTags: true,
+		tags: [],
+	}),
+	"plain title with no tags configured",
+);
+assert.match(
+	normalizeTitle("title body that is far too long", {
+		maxLength: 8,
+		useTags: false,
+		tags: [],
+	}),
+	ISO_FALLBACK_RE,
+);
+assert.equal(
+	normalizeTitle("\u001b[32mfix(todo): replace progress glyphs\u001b[0m", {
+		maxLength: 52,
+		useTags: true,
+		tags: BUILTIN_TITLE_TAGS,
+	}),
 	"fix(todo): replace progress glyphs",
 );
 assert.equal(
-	normalizeTitle("fix(todo): replace progress glyphs╻▄▄▄▄▄▄", 52),
+	normalizeTitle("fix(todo): replace progress glyphs╻▄▄▄▄▄▄", {
+		maxLength: 52,
+		useTags: true,
+		tags: BUILTIN_TITLE_TAGS,
+	}),
 	"fix(todo): replace progress glyphs",
 );
 

@@ -14,16 +14,59 @@ const cwd = join(root, "project");
 await mkdir(agentDir, { recursive: true });
 await mkdir(join(cwd, ".pi"), { recursive: true });
 
+assert.deepEqual(DEFAULT_SESSION_NAMING_CONFIG.session.titleGeneration, {
+	enabled: true,
+	language: "auto",
+	model: "auto",
+	retries: 3,
+	emojis: false,
+	maxLength: 52,
+	useTags: true,
+	builtinTags: true,
+	tags: [],
+});
+assert.equal(
+	Object.hasOwn(DEFAULT_SESSION_NAMING_CONFIG.session, "list"),
+	false,
+);
+assert.equal(
+	Object.hasOwn(DEFAULT_SESSION_NAMING_CONFIG.session.titleGeneration, "style"),
+	false,
+);
+assert.equal(
+	Object.hasOwn(DEFAULT_SESSION_NAMING_CONFIG.session.titleGeneration, "fallback"),
+	false,
+);
+assert.equal(
+	Object.hasOwn(
+		DEFAULT_SESSION_NAMING_CONFIG.session.titleGeneration,
+		"commandStrategy",
+	),
+	false,
+);
+assert.equal(
+	Object.hasOwn(DEFAULT_SESSION_NAMING_CONFIG.session.titleGeneration, "retry"),
+	false,
+);
+
 await writeFile(
 	join(agentDir, "settings.json"),
 	JSON.stringify(
 		{
-			user: { preferences: { language: "Deutsch" } },
 			session: {
 				titleGeneration: {
-					style: { maxLength: 40 },
-					commandStrategy: { waitTurns: 2 },
+					language: "Deutsch",
+					model: "deepseek/deepseek-v4-flash:high",
+					retries: 5,
+					maxLength: 40,
+					builtinTags: false,
+					tags: ["cook", "book"],
+					style: { maxLength: 999, emojis: true },
+					fallback: "datetime",
+					commandStrategy: { waitTurns: 9 },
+					retry: { maxTemporaryRetries: 9 },
 				},
+				list: { enabled: false, flag: "old-sessions", jsonFlag: "old-json" },
 				rename: { command: "titel" },
 			},
 		},
@@ -37,9 +80,12 @@ await writeFile(
 		{
 			session: {
 				title_generation: {
-					style: { emojis: true },
-					retry: { max_temporary_retries: 7 },
+					emojis: true,
+					use_tags: false,
+					builtin_tags: true,
+					tags: ["meet"],
 				},
+				browser: { pageSize: 5, showCwd: "always" },
 			},
 		},
 		null,
@@ -53,19 +99,28 @@ const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 process.env.PI_CODING_AGENT_DIR = agentDir;
 try {
 	const loadedFromEnv = await loadPiConfig(cwd);
-	assert.equal(loadedFromEnv.config.user.preferences.language, "Deutsch");
-	assert.equal(loadedFromEnv.config.session.titleGeneration.style.maxLength, 40);
+	assert.equal(loadedFromEnv.config.session.titleGeneration.language, "Deutsch");
+	assert.equal(loadedFromEnv.config.session.titleGeneration.maxLength, 40);
 } finally {
 	if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 	else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 }
 
-assert.equal(loaded.config.user.preferences.language, "Deutsch");
-assert.equal(loaded.config.session.titleGeneration.style.maxLength, 40);
-assert.equal(loaded.config.session.titleGeneration.style.emojis, true);
-assert.equal(loaded.config.session.titleGeneration.commandStrategy.waitTurns, 2);
-assert.equal(loaded.config.session.titleGeneration.retry.maxTemporaryRetries, 7);
+assert.deepEqual(loaded.config.session.titleGeneration, {
+	enabled: true,
+	language: "Deutsch",
+	model: "deepseek/deepseek-v4-flash:high",
+	retries: 5,
+	emojis: true,
+	maxLength: 40,
+	useTags: false,
+	builtinTags: true,
+	tags: ["meet"],
+});
 assert.equal(loaded.config.session.rename.command, "titel");
+assert.equal(loaded.config.session.browser.pageSize, 5);
+assert.equal(Object.hasOwn(loaded.config.session, "list"), false);
+assert.equal(Object.hasOwn(loaded.config.session.browser, "showCwd"), false);
 assert.equal(
 	loaded.config.session.browser.command,
 	DEFAULT_SESSION_NAMING_CONFIG.session.browser.command,

@@ -14,7 +14,6 @@ import {
 import {
 	DEFAULT_PI_CONFIG,
 	type SessionBrowserConfig,
-	type SessionListConfig,
 } from "../shared/config/index.js";
 import { loadPiConfig } from "../shared/config/index.js";
 import {
@@ -27,6 +26,9 @@ import {
 	writeStdoutLine,
 } from "../shared/cli-listing.js";
 import { markManualTitle, markManualTitleInSession } from "./state.js";
+
+const LIST_SESSIONS_FLAG = "list-sessions";
+const JSON_FLAG = "json";
 
 type ListSessionsArgs = {
 	enabled: boolean;
@@ -41,13 +43,12 @@ type SessionSelectorResult =
 	| { action: "delete"; session: SessionInfo }
 	| { action: "cancel" };
 
-function parseListSessionsArgs(
-	config: SessionListConfig,
+export function parseListSessionsArgs(
 	args = process.argv.slice(2),
 ): ListSessionsArgs {
 	const parsed: ListSessionsArgs = { enabled: false, json: false };
-	const flag = `--${config.flag || DEFAULT_PI_CONFIG.session.list.flag}`;
-	const jsonFlag = `--${config.jsonFlag || DEFAULT_PI_CONFIG.session.list.jsonFlag}`;
+	const flag = `--${LIST_SESSIONS_FLAG}`;
+	const jsonFlag = `--${JSON_FLAG}`;
 
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
@@ -382,8 +383,6 @@ class SessionsSelector {
 	}
 
 	private shouldShowCwd(sessions: SessionInfo[]): boolean {
-		if (this.browser.showCwd === "never") return false;
-		if (this.browser.showCwd === "always") return true;
 		const first = sessions[0]?.cwd;
 		return sessions.some((session) => session.cwd !== first);
 	}
@@ -513,9 +512,8 @@ async function loadSessionConfig(cwd: string) {
 
 export async function registerSessionList(pi: ExtensionAPI): Promise<void> {
 	const sessionConfig = await loadSessionConfig(process.cwd());
-	const list = sessionConfig.list;
 	const browser = sessionConfig.browser;
-	const args = parseListSessionsArgs(list);
+	const args = parseListSessionsArgs();
 
 	if (browser.enabled) {
 		pi.registerCommand(browser.command, {
@@ -541,12 +539,11 @@ export async function registerSessionList(pi: ExtensionAPI): Promise<void> {
 		});
 	}
 
-	if (!list.enabled) return;
-	pi.registerFlag(list.flag, {
+	pi.registerFlag(LIST_SESSIONS_FLAG, {
 		description: "List project sessions (with optional fuzzy filter)",
 		type: "boolean",
 	});
-	if (args.enabled) registerSharedJsonFlag(pi, list.jsonFlag);
+	if (args.enabled) registerSharedJsonFlag(pi, JSON_FLAG);
 	if (!args.enabled) return;
 
 	const sessions = await getSessions(process.cwd(), args);

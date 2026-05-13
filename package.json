@@ -1,9 +1,10 @@
 {
-  "name": "pi-session-naming",
-  "version": "0.1.0",
-  "description": "Standalone Pi extension package for automatic session titles, rename, and session browsing.",
+  "name": "@furbyhaxx/pi-session-naming",
+  "version": "0.2.0",
+  "description": "Pi extension for automatic session titles, rename, browsing, and session listing.",
   "type": "module",
   "license": "MIT",
+  "author": "furbyhaxx",
   "keywords": [
     "pi-package",
     "pi",
@@ -19,9 +20,19 @@
     "url": "https://github.com/furbyhaxx/pi-session-naming/issues"
   },
   "homepage": "https://github.com/furbyhaxx/pi-session-naming#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "extensions/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx extensions/shared/config/settings-config.test.ts && tsx extensions/session/auto-title.test.ts && tsx extensions/session/model-selection.test.ts && tsx extensions/session/title-message.test.ts",
+    "test:unit": "tsx extensions/shared/config/settings-config.test.ts && tsx extensions/session/auto-title.test.ts && tsx extensions/session/model-selection.test.ts && tsx extensions/session/list.test.ts && tsx extensions/session/title-message.test.ts",
     "test": "npm run typecheck && npm run test:unit",
     "build": "npm run typecheck"
   },

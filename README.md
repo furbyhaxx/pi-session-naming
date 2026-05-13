@@ -1,139 +1,51 @@
 # pi-session-naming
 
-Standalone Pi extension package for automatic session titles, `/rename`, `/sessions`, and `--list-sessions`.
+A [pi](https://github.com/earendil-works/pi) coding-agent extension for automatic session titles, manual session renaming, project session browsing, and session listing.
 
-Extracted from `/Projects/furbyhaxx/pi-extensions/extensions/session` with the custom theme dependency removed. Rendering uses Pi's normal theme tokens (`accent`, `dim`, `warning`, `selectedBg`, etc.), so it follows the active Pi theme instead of shipping one. Because apparently even colors deserve boundaries.
+It uses pi's default theme tokens (`accent`, `dim`, `warning`, `selectedBg`, etc.), so rendering follows the active pi theme. No custom theme. Shocking restraint, really.
 
 ## Install
 
-From this checkout:
+Install from GitHub:
 
-```bash
+```sh
+pi install git:https://github.com/furbyhaxx/pi-session-naming
+```
+
+Or clone the repo and install from the local checkout:
+
+```sh
+git clone https://github.com/furbyhaxx/pi-session-naming
+cd pi-session-naming
 npm install
-pi install ./
+pi install path/to/cloned/repo
 ```
 
-Temporary smoke load without installing:
+Load directly without installing:
 
-```bash
-pi -e ./
+```sh
+pi -e path/to/cloned/repo
 ```
 
-The package manifest exposes only:
+After npm publishing, the package is intended to install as:
 
-```json
-{
-  "pi": {
-    "extensions": ["./extensions/session/index.ts"]
-  }
-}
+```sh
+pi install npm:@furbyhaxx/pi-session-naming
 ```
 
 ## Features
 
-- Auto-generates a session title for unnamed sessions.
-- Uses a lightweight configured model, or falls back through known title models and then the current session model.
+- Auto-generates a title for unnamed sessions.
+- Generates conventional-style titles such as `fix(auth): refresh token flow`.
+- Uses built-in title tags plus optional user-supplied tags.
+- Can disable tags for plain description-only titles.
+- Uses a configured lightweight model, or auto-selects a known title model.
+- Retries title generation and falls back once to the current session model when different.
 - Avoids overwriting manual titles.
 - Uses temporary datetime titles for trivial/vague prompts and retries later after meaningful activity.
 - Adds `/rename [name]` and `/rename auto`.
 - Adds `/sessions` for interactive project session browsing, switching, renaming, and deletion.
-- Adds `--list-sessions [filter]` and `--json` for CLI listing.
-
-## Configuration
-
-Configuration lives in Pi's regular `settings.json`, not `Pi.yaml`.
-
-Pi resolves global settings from:
-
-```text
-${PI_CODING_AGENT_DIR:-~/.pi/agent}/settings.json
-```
-
-Project settings override it from:
-
-```text
-./.pi/settings.json
-```
-
-This extension reads both scopes through Pi's `SettingsManager`, deep-merges only its own `user.preferences` and `session` blocks, and preserves the original camelCase config semantics. Snake-case aliases are also accepted for easier migration from the old YAML config.
-
-### Example
-
-```json
-{
-  "user": {
-    "preferences": {
-      "language": "English"
-    }
-  },
-  "session": {
-    "titleGeneration": {
-      "enabled": true,
-      "model": "auto",
-      "commandStrategy": {
-        "waitTurns": 3,
-        "prompt": {
-          "replace": "",
-          "rules": "",
-          "examples": ""
-        }
-      },
-      "retry": {
-        "temporaryAfterTurns": 10,
-        "maxTemporaryRetries": 3
-      },
-      "style": {
-        "format": "conventional",
-        "emojis": false,
-        "maxLength": 52,
-        "fallback": "datetime",
-        "prompt": {
-          "replace": "",
-          "rules": "",
-          "examples": ""
-        }
-      }
-    },
-    "rename": {
-      "enabled": true,
-      "command": "rename",
-      "interactiveWhenEmpty": true
-    },
-    "browser": {
-      "enabled": true,
-      "command": "sessions",
-      "pageSize": 12,
-      "showCwd": "auto",
-      "delete": {
-        "enabled": true,
-        "useTrash": true,
-        "confirmPresses": 2
-      }
-    },
-    "list": {
-      "enabled": true,
-      "flag": "list-sessions",
-      "jsonFlag": "json"
-    }
-  }
-}
-```
-
-### Snake-case migration example
-
-This also works in `settings.json`:
-
-```json
-{
-  "session": {
-    "title_generation": {
-      "command_strategy": { "wait_turns": 2 },
-      "retry": { "max_temporary_retries": 5 },
-      "style": { "max_length": 60 }
-    }
-  }
-}
-```
+- Adds fixed `--list-sessions [filter]` and `--json` CLI listing flags.
 
 ## Commands and flags
 
@@ -146,12 +58,133 @@ This also works in `settings.json`:
 --json                   Emit session listing as JSON when listing is active
 ```
 
-## Development
+## Configuration
 
-```bash
-npm install
-npm run typecheck
-npm run test
+Configuration lives in pi's regular `settings.json`.
+
+Global settings:
+
+```text
+${PI_CODING_AGENT_DIR:-~/.pi/agent}/settings.json
 ```
 
-The unit tests cover title normalization, model selection, context filtering, title scheduling, and `settings.json` config merging with `PI_CODING_AGENT_DIR` support.
+Project settings override global settings:
+
+```text
+./.pi/settings.json
+```
+
+This extension reads both scopes through pi's `SettingsManager` and deep-merges only its own `session.titleGeneration`, `session.rename`, and `session.browser` blocks. Snake-case aliases for the new keys are accepted (`title_generation`, `max_length`, `use_tags`, `builtin_tags`, etc.). Unknown settings outside the current schema are ignored.
+
+### Defaults
+
+```json
+{
+  "session": {
+    "titleGeneration": {
+      "enabled": true,
+      "language": "auto",
+      "model": "auto",
+      "retries": 3,
+      "emojis": false,
+      "maxLength": 52,
+      "useTags": true,
+      "builtinTags": true,
+      "tags": []
+    },
+    "browser": {
+      "enabled": true,
+      "command": "sessions",
+      "pageSize": 12,
+      "delete": {
+        "enabled": true,
+        "useTrash": true,
+        "confirmPresses": 2
+      }
+    },
+    "rename": {
+      "enabled": true,
+      "command": "rename",
+      "interactiveWhenEmpty": true
+    }
+  }
+}
+```
+
+### Title generation options
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `true` | Enables automatic title generation. |
+| `language` | `"auto"` | `auto` tells the LLM to use the user's message language; any other string instructs that language. |
+| `model` | `"auto"` | `auto`, or `{provider}/{model}{:thinking}` such as `deepseek/deepseek-v4-flash` or `deepseek/deepseek-v4-flash:high`. |
+| `retries` | `3` | Number of attempts for the selected title model before trying the current session model once when different. |
+| `emojis` | `false` | Allows or forbids emojis in generated titles. |
+| `maxLength` | `52` | Maximum length of the description part after the tag, e.g. only `choco cookies` in `research(recipe): choco cookies`. |
+| `useTags` | `true` | Enables the prefixed tag format (`research(recipe): ...`). When `false`, titles are plain descriptions. |
+| `builtinTags` | `true` | Enables the built-in tag list. When `false`, only user-provided `tags` are available. |
+| `tags` | `[]` | Additional lowercase custom tags. Invalid tags are ignored. |
+
+### Built-in title tags
+
+```text
+feat, add, fix, refactor, perf, style, test, bench, docs, build, ops, chore,
+analyze, audit, review, research, investigate, debug, troubleshoot, plan,
+design, propose, compare, evaluate, explain, summarize, document, configure,
+migrate, prototype, validate, wire
+```
+
+### Example
+
+```json
+{
+  "session": {
+    "titleGeneration": {
+      "language": "auto",
+      "model": "github-copilot/gpt-5.4-mini:low",
+      "retries": 3,
+      "emojis": false,
+      "maxLength": 52,
+      "useTags": true,
+      "builtinTags": true,
+      "tags": ["cook", "book", "meet"]
+    }
+  }
+}
+```
+
+To use only your own tag list:
+
+```json
+{
+  "session": {
+    "titleGeneration": {
+      "builtinTags": false,
+      "tags": ["cook", "book", "meet"]
+    }
+  }
+}
+```
+
+## Package manifest
+
+The pi package manifest exposes only the session extension entry point:
+
+```json
+{
+  "pi": {
+    "extensions": ["./extensions/session/index.ts"]
+  }
+}
+```
+
+## Development
+
+```sh
+npm install
+npm run typecheck
+npm test
+npm pack --dry-run
+```
+
+Pi loads the TypeScript source directly; the build script only typechecks and does not emit artifacts.
