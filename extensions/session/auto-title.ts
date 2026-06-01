@@ -90,6 +90,7 @@ const NO_TEMPERATURE_APIS = new Set(["openai-codex-responses"]);
 const COMMAND_WAIT_TURNS = 3;
 const TEMPORARY_RETRY_AFTER_TURNS = 10;
 const MAX_TEMPORARY_TITLE_RETRIES = 3;
+const STALE_EXTENSION_CONTEXT_RE = /stale after session replacement or reload/i;
 
 function render(template: string, vars: Record<string, string>): string {
 	return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (whole, key) =>
@@ -441,6 +442,26 @@ async function loadConfig(ctx: ExtensionContext): Promise<PiConfig> {
 	}
 }
 
+export function isStaleExtensionContextError(error: unknown): boolean {
+	return (
+		error instanceof Error && STALE_EXTENSION_CONTEXT_RE.test(error.message)
+	);
+}
+
+export function withActiveUi(
+	ctx: Pick<ExtensionContext, "hasUI" | "ui">,
+	callback: (ui: ExtensionContext["ui"]) => void,
+): boolean {
+	try {
+		if (!ctx.hasUI) return false;
+		callback(ctx.ui);
+		return true;
+	} catch (error) {
+		if (isStaleExtensionContextError(error)) return false;
+		throw error;
+	}
+}
+
 export async function generateSessionTitleNow(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
@@ -480,7 +501,7 @@ async function generateTitle(
 	const candidates = await resolveTitleModels(ctx, titleConfig, pending);
 	if (candidates.length === 0) return undefined;
 
-	if (ctx.hasUI) ctx.ui.setStatus("session-title", "naming session…");
+	withActiveUi(ctx, (ui) => ui.setStatus("session-title", "naming session…"));
 	try {
 		const branch = ctx.sessionManager.getBranch();
 		const workspace = await collectWorkspace(pi, ctx);
@@ -528,10 +549,12 @@ async function generateTitle(
 		const candidate = usedCandidate ?? candidates[0];
 		const model = candidate.model;
 		const modelLabel = `${model.provider}/${model.id}${candidate.thinking ? `:${candidate.thinking}` : ""}`;
-		if (!usedCandidate && lastError && ctx.hasUI) {
-			ctx.ui.notify(
-				`Title generation failed on all auto-title attempts (last: ${lastError}); using fallback title`,
-				"warning",
+		if (!usedCandidate && lastError) {
+			withActiveUi(ctx, (ui) =>
+				ui.notify(
+					`Title generation failed on all auto-title attempts (last: ${lastError}); using fallback title`,
+					"warning",
+				),
 			);
 		}
 
@@ -547,9 +570,9 @@ async function generateTitle(
 		const result = parseResult(raw, pending, titleConfig);
 		pi.setSessionName(result.title);
 		markAutoTitle(pi, result.title, modelLabel, result.temporary);
-		if (ctx.hasUI) {
-			ctx.ui.setTitle(result.title);
-		}
+		withActiveUi(ctx, (ui) => {
+			ui.setTitle(result.title);
+		});
 		emitSessionTitleMessage(
 			pi,
 			{
@@ -562,7 +585,7 @@ async function generateTitle(
 		);
 		return result;
 	} finally {
-		if (ctx.hasUI) ctx.ui.setStatus("session-title", undefined);
+		withActiveUi(ctx, (ui) => ui.setStatus("session-title", undefined));
 	}
 }
 
@@ -623,11 +646,12 @@ export function registerSessionAutoTitle(
 					temporaryRetries = 0;
 				}
 			} catch (error) {
-				if (ctx.hasUI)
-					ctx.ui.notify(
+				withActiveUi(ctx, (ui) =>
+					ui.notify(
 						`Title generation failed: ${error instanceof Error ? error.message : String(error)}`,
 						"warning",
-					);
+					),
+				);
 			} finally {
 				generating = false;
 			}
@@ -738,16 +762,21 @@ export async function runAutoTitleCommand(
 		reason: "manual-auto",
 	})
 		.then((result) => {
-			if (!result && ctx.hasUI)
-				ctx.ui.notify(
-					"Could not generate a session title for the current context.",
-					"warning",
+			if (!result)
+				withActiveUi(ctx, (ui) =>
+					ui.notify(
+						"Could not generate a session title for the current context.",
+						"warning",
+					),
 				);
 		})
 		.catch((error) => {
 			const msg = error instanceof Error ? error.message : String(error);
-			if (ctx.hasUI)
-				ctx.ui.notify(`Title generation failed: ${msg}`, "warning");
-			else console.warn(`[session-title] manual /rename auto failed: ${msg}`);
+			const notified = withActiveUi(ctx, (ui) =>
+				ui.notify(`Title generation failed: ${msg}`, "warning"),
+			);
+			if (!notified && !isStaleExtensionContextError(error)) {
+				console.warn(`[session-title] manual /rename auto failed: ${msg}`);
+			}
 		});
 }

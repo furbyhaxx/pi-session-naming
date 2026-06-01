@@ -12,6 +12,10 @@ import {
 	normalizeTitle,
 	resolveTitleTags,
 } from "./title-utils.js";
+import {
+	isStaleExtensionContextError,
+	withActiveUi,
+} from "./auto-title.js";
 
 const ISO_FALLBACK_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}[+-]\d{2}:\d{2}$/;
 
@@ -286,6 +290,61 @@ assert.equal(
 		shouldSkip: true,
 	}),
 	false,
+);
+
+assert.equal(
+	isStaleExtensionContextError(
+		new Error(
+			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.reload().",
+		),
+	),
+	true,
+);
+assert.equal(
+	isStaleExtensionContextError(new Error("something else")),
+	false,
+);
+
+let staleUiCalls = 0;
+assert.doesNotThrow(() => {
+	withActiveUi(
+		{
+			get hasUI() {
+				throw new Error(
+					"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.reload().",
+				);
+			},
+		} as any,
+		() => {
+			staleUiCalls++;
+		},
+	);
+});
+assert.equal(staleUiCalls, 0);
+
+let activeUiCalls = 0;
+withActiveUi(
+	{
+		hasUI: true,
+		ui: { notify() {} },
+	} as any,
+	() => {
+		activeUiCalls++;
+	},
+);
+assert.equal(activeUiCalls, 1);
+
+assert.throws(
+	() =>
+		withActiveUi(
+			{
+				get hasUI() {
+					throw new Error("different failure");
+				},
+			} as any,
+			() => undefined,
+		),
+	/different failure/,
 );
 
 console.log("session auto-title tests passed");

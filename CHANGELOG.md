@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses conventional commits.
 
+## [Unreleased]
+
+### Fixed
+
+- Avoided stale extension-context crashes when background session title generation outlives a session switch or runtime reload.
+
 ## [0.2.1] - 2026-05-13
 
 ### Added
